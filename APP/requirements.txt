@@ -1,8 +1,9 @@
-Flask
-Flask-Cors
-joblib
+fastapi
+uvicorn
+pydantic
 numpy
 pandas
-tensorflow
-xgboost
+joblib
 scikit-learn
+tensorflow-cpu
+xgboost

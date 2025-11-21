@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgriMind - IoT Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; }
+        .glass-panel { 
+            background: white; 
+            border: 1px solid #e2e8f0; 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); 
+        }
+        .btn-primary { background: #0f172a; color: white; transition: all 0.2s; }
+        .btn-primary:hover { background: #334155; transform: translateY(-1px); }
+        
+        /* Custom Scrollbar for cleaner look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        function App() {
+            // [DEPLOYMENT READY] Empty string = Use current domain
+            const [apiUrl, setApiUrl] = useState(""); 
+            
+            // Inputs for Prediction Engine
+            const [inputs, setInputs] = useState({
+                soil_nitrogen_balance: 90.0,
+                avg_jan_temp_change: 1.1,
+                pesticide_use_kg_ha: 2.0,
+                nitrogen_fertilizer_tonnes: 120.0
+            });
+            
+            // Application State
+            const [prediction, setPrediction] = useState(null);
+            const [selectedSensor, setSelectedSensor] = useState("moisture"); 
+            const [isAnomaly, setIsAnomaly] = useState(false); 
+            const [alertResult, setAlertResult] = useState(null);
+            
+            // Chart References
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            // --- 1. MASTER GLOBAL SIMULATION (The "Demo" Button) ---
+            const triggerGlobalRandom = () => {
+                // A. Randomize Soil Inputs to trigger specific crops
+                const profiles = [
+                    { n: 50, t: 2.5, p: 4.5, f: 300 }, // Rice Profile
+                    { n: 70, t: 0.5, p: 0.2, f: 40 },  // Spices/Coffee Profile
+                    { n: 10, t: 0.1, p: 0.5, f: 20 },  // Pulses Profile
+                    { n: 90, t: 1.1, p: 2.0, f: 120 }  // Apples Profile
+                ];
+                const randomProfile = profiles[Math.floor(Math.random() * profiles.length)];
+                setInputs({
+                    soil_nitrogen_balance: randomProfile.n,
+                    avg_jan_temp_change: randomProfile.t,
+                    pesticide_use_kg_ha: randomProfile.p,
+                    nitrogen_fertilizer_tonnes: randomProfile.f
+                });
+
+                // B. Randomize Sensor Selection & Fault Status
+                const sensors = ["moisture", "temperature", "humidity"];
+                const randomSensor = sensors[Math.floor(Math.random() * sensors.length)];
+                
+                // 30% chance of failure simulation
+                const randomAnomaly = Math.random() < 0.3; 
+
+                setSelectedSensor(randomSensor);
+                setIsAnomaly(randomAnomaly);
+                
+                // Clear previous prediction to encourage user interaction
+                setPrediction(null);
+            };
+
+            const predictCrop = async () => {
+                try {
+                    const res = await fetch(`${apiUrl}/predict`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(inputs)
+                    });
+                    const data = await res.json();
+                    setPrediction(data);
+                } catch(e) { alert("Error: Backend is not reachable."); }
+            };
+
+            // --- 2. PREMIUM CHART ENGINE ---
+            const updateChart = (dataPoints) => {
+                const ctx = chartRef.current.getContext('2d');
+                
+                // Create Gradient for that premium dashboard look
+                let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                const colorBase = selectedSensor === 'temperature' ? '249, 115, 22' : selectedSensor === 'humidity' ? '14, 165, 233' : '22, 163, 74';
+                
+                gradient.addColorStop(0, `rgba(${colorBase}, 0.5)`);
+                gradient.addColorStop(1, `rgba(${colorBase}, 0.0)`);
+
+                if (chartInstance.current) chartInstance.current.destroy();
+
+                chartInstance.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: Array.from({length:24}, (_,i)=>`${i}:00`),
+                        datasets: [{
+                            label: 'Sensor Reading',
+                            data: dataPoints,
+                            borderColor: `rgb(${colorBase})`,
+                            backgroundColor: gradient,
+                            borderWidth: 3,
+                            pointRadius: 0,     // Clean look (no dots)
+                            pointHoverRadius: 6,
+                            fill: true,
+                            tension: 0.4        // Smooth curves
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: {display: false} },
+                        scales: {
+                            y: { grid: { borderDash: [4, 4], color: '#e2e8f0' } },
+                            x: { grid: { display: false } }
+                        },
+                        interaction: { intersect: false, mode: 'index' },
+                    }
+                });
+            };
+
+            const runDiagnostics = async () => {
+                let data = [];
+                // Baselines for fake data generation
+                const base = selectedSensor === 'moisture' ? 5 : selectedSensor === 'temperature' ? 25 : 60;
+                const variance = isAnomaly ? 15 : 2; 
+                
+                // Generate 24h Data points
+                for (let i = 0; i < 24; i++) {
+                    if (isAnomaly && i > 12 && i < 16) {
+                        // Inject Fault (Spike)
+                        data.push(base + variance + (Math.random()*2)); 
+                    } else {
+                        // Normal Operation (Sine Wave)
+                        data.push(base + Math.sin(i/2) + (Math.random()*0.5)); 
+                    }
+                }
+                
+                updateChart(data);
+                
+                // Send to AI for Analysis
+                try {
+                    const res = await fetch(`${apiUrl}/alert`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ sensor_type: selectedSensor, sensor_values: data })
+                    });
+                    const result = await res.json();
+                    setAlertResult(result);
+                } catch(e) { console.log("API Error - Is backend running?"); }
+            };
+
+            // Auto-run diagnostics when state changes
+            useEffect(() => { runDiagnostics(); }, [selectedSensor, isAnomaly]);
+
+            return (
+                <div className="min-h-screen p-4 md:p-8">
+                    {/* HEADER SECTION */}
+                    <header className="flex flex-col md:flex-row justify-between items-center mb-8 max-w-7xl mx-auto gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-slate-900 text-white p-3 rounded-xl shadow-lg">
+                                <i className="ph ph-plant text-3xl"></i>
+                            </div>
+                            <div>
+                                <h1 className="text-2xl font-bold text-slate-800">AgriMind <span className="text-slate-400 font-light">IoT</span></h1>
+                                <p className="text-xs text-slate-500 font-medium tracking-wide">INTELLIGENT FARM MANAGEMENT</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <button onClick={triggerGlobalRandom} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-50 transition shadow-sm flex items-center gap-2 group">
+                                <i className="ph ph-shuffle text-lg group-hover:rotate-180 transition-transform"></i> Global Simulation
+                            </button>
+                            {alertResult && alertResult.alert === 'CRITICAL ANOMALY' && (
+                                <div className="bg-red-500 text-white px-5 py-2 rounded-lg shadow-red-200 shadow-lg flex items-center gap-2 animate-pulse">
+                                    <i className="ph ph-warning-octagon text-xl"></i>
+                                    <span className="font-bold text-sm">CRITICAL FAILURE</span>
+                                </div>
+                            )}
+                        </div>
+                    </header>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-7xl mx-auto">
+                        
+                        {/* LEFT COLUMN: CROP PREDICTION ENGINE */}
+                        <div className="lg:col-span-4 space-y-6">
+                            <div className="glass-panel rounded-2xl p-6">
+                                <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-4">
+                                    <i className="ph ph-magic-wand text-indigo-500 text-xl"></i>
+                                    <h2 className="font-bold text-slate-700">Crop & Yield Engine</h2>
+                                </div>
+                                
+                                <div className="space-y-4">
+                                    {Object.keys(inputs).map(key => (
+                                        <div key={key}>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{key.replace(/_/g, ' ')}</label>
+                                            <input type="number" 
+                                                value={inputs[key]} 
+                                                onChange={(e)=>setInputs({...inputs, [key]: parseFloat(e.target.value)})}
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 mt-1 font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <button onClick={predictCrop} className="btn-primary w-full py-4 rounded-xl mt-6 font-medium shadow-xl shadow-slate-200 flex justify-center items-center gap-2 group">
+                                    Predict Best Crop <i className="ph ph-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                                </button>
+                            </div>
+
+                            {/* PREDICTION RESULT CARD */}
+                            {prediction && (
+                                <div className={`rounded-2xl p-6 text-white shadow-2xl transform transition-all duration-500 hover:scale-[1.02] ${prediction.yield_alert ? 'bg-red-500 shadow-red-200' : 'bg-gradient-to-br from-emerald-500 to-teal-700 shadow-emerald-200'}`}>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="text-white/70 text-xs font-bold uppercase tracking-wider">Recommended</p>
+                                            <h3 className="text-4xl font-bold mt-1">{prediction.recommended_crop}</h3>
+                                        </div>
+                                        <i className={`ph ${prediction.yield_alert ? 'ph-warning-diamond' : 'ph-check-circle'} text-5xl opacity-30`}></i>
+                                    </div>
+                                    
+                                    <div className="mt-8 pt-4 border-t border-white/20 flex justify-between items-end">
+                                        <div>
+                                            <p className="text-white/70 text-xs font-bold uppercase tracking-wider">Est. Yield</p>
+                                            <div className="flex items-baseline gap-1 mt-1">
+                                                <span className="text-3xl font-bold">{prediction.predicted_yield_hg_ha.toFixed(0)}</span>
+                                                <span className="text-sm opacity-80 font-medium">hg/ha</span>
+                                            </div>
+                                        </div>
+                                        {prediction.yield_alert && (
+                                            <div className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold backdrop-blur-sm border border-white/30 animate-pulse">
+                                                ⚠️ LOW YIELD
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* RIGHT COLUMN: LIVE SENSOR NETWORK */}
+                        <div className="lg:col-span-8 space-y-6">
+                            <div className="glass-panel rounded-2xl p-6 h-full flex flex-col">
+                                <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                                    <div>
+                                        <h2 className="font-bold text-slate-700 text-lg flex items-center gap-2">
+                                            <i className="ph ph-chart-line-up text-blue-500"></i> Live Sensor Data
+                                        </h2>
+                                        <p className="text-xs text-slate-400 mt-1">Real-time LSTM Autoencoder Analysis</p>
+                                    </div>
+
+                                    {/* SENSOR SELECTION TABS */}
+                                    <div className="flex bg-slate-100 p-1.5 rounded-xl">
+                                        {['moisture', 'temperature', 'humidity'].map(s => (
+                                            <button 
+                                                key={s}
+                                                onClick={() => {setSelectedSensor(s); setIsAnomaly(false);}}
+                                                className={`px-5 py-2 text-xs font-bold rounded-lg capitalize transition-all ${selectedSensor === s ? 'bg-white shadow-sm text-slate-800 scale-105' : 'text-slate-400 hover:text-slate-600'}`}>
+                                                {s}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* CHART CANVAS */}
+                                <div className="flex-grow bg-white border border-slate-100 rounded-2xl p-4 relative min-h-[400px]">
+                                    <canvas ref={chartRef}></canvas>
+                                </div>
+
+                                {/* DIAGNOSTIC CONTROLS */}
+                                <div className="mt-6 flex flex-col sm:flex-row items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-100 gap-4">
+                                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                                        <button 
+                                            onClick={() => setIsAnomaly(!isAnomaly)}
+                                            className={`flex-1 sm:flex-none px-4 py-2.5 rounded-lg text-xs font-bold border transition-all ${isAnomaly ? 'bg-red-50 text-red-600 border-red-200 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                                            {isAnomaly ? '🔴 Stop Fault Injection' : '⚡ Simulate Fault'}
+                                        </button>
+                                    </div>
+                                    
+                                    {/* STATUS INDICATORS */}
+                                    <div className="flex items-center gap-6 w-full sm:w-auto justify-between sm:justify-end">
+                                        <div className="text-right">
+                                            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Loss (MAE)</p>
+                                            <p className={`font-mono font-bold text-lg ${alertResult && alertResult.reconstruction_error > 0.12 ? 'text-red-600' : 'text-slate-700'}`}>
+                                                {alertResult ? alertResult.reconstruction_error.toFixed(4) : '0.0000'}
+                                            </p>
+                                        </div>
+                                        <div className="h-8 w-px bg-slate-200"></div>
+                                        <div className="text-right">
+                                            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Status</p>
+                                            <p className={`font-bold text-sm ${alertResult && alertResult.alert === 'CRITICAL ANOMALY' ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                {alertResult && alertResult.alert === 'CRITICAL ANOMALY' ? 'FAILURE' : 'NOMINAL'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
